@@ -12,9 +12,7 @@
 
 set -euo pipefail
 
-# ------------------------------------------------------------------------------
-# Help
-# ------------------------------------------------------------------------------
+# Help.
 usage() {
     cat <<EOF
 Usage:
@@ -29,17 +27,13 @@ EOF
     exit 1
 }
 
-# ------------------------------------------------------------------------------
-# Initialize
-# ------------------------------------------------------------------------------
+# Initialize.
 INCLUDE_EXTS=()
 EXCLUDE_EXTS=()
 INCLUDE_NAMES=()
 EXCLUDE_NAMES=()
 
-# ------------------------------------------------------------------------------
-# Parse command-line options
-# ------------------------------------------------------------------------------
+# Parse command-line options.
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --include-ext)
@@ -71,21 +65,18 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ------------------------------------------------------------------------------
-# Validate arguments
-# ------------------------------------------------------------------------------
-#
+# Validate arguments.
 [[ $# -eq 3 ]] || usage
 DIR1="$(cd "$1" && pwd)"
 DIR2="$(cd "$2" && pwd)"
 OUT="$(mkdir -p "$3" && cd "$3" && pwd)"
 
-# ------------------------------------------------------------------------------
-# Normalize extensions (executed once at startup)
-# ------------------------------------------------------------------------------
+# Normalize extensions (executed once at startup).
 normalize_ext() {
     local ext="$1"
+    # Remove a leading dot if present.
     ext="${ext#.}"
+    # Convert the extention to lowercase.
     echo "${ext,,}"
 }
 
@@ -99,31 +90,31 @@ for e in "${EXCLUDE_EXTS[@]+"${EXCLUDE_EXTS[@]}"}"; do
     NORM_EXCLUDE_EXTS+=("$(normalize_ext "$e")")
 done
 
-# ------------------------------------------------------------------------------
-# Filename filter function
-# ------------------------------------------------------------------------------
+# Filename filter function.
+# Return 0 if the file should be included; otherwise return 1.
 match_file() {
     local file="$1"
+    # e.g. ./src/main.c -> main.c
     local basename="${file##*/}"
 
-    # Check --exclude-name (highest priority)
+    # Check --exclude-name (highest priority).
     local n
     for n in "${EXCLUDE_NAMES[@]+"${EXCLUDE_NAMES[@]}"}"; do
         [[ "$basename" == "$n" ]] && return 1
     done
 
-    # If matched by --include-name, accept immediately (bypass extension filters)
+    # If matched by --include-name, accept immediately (bypass extension filters).
     for n in "${INCLUDE_NAMES[@]+"${INCLUDE_NAMES[@]}"}"; do
         [[ "$basename" == "$n" ]] && return 0
     done
 
-    # Extract extension (empty if none)
+    # Extract extension (empty if none).
     local ext="${basename##*.}"
     [[ "$basename" == "$ext" ]] && ext=""
     ext="${ext#.}"
     ext="${ext,,}"
 
-    # Check include-ext if specified
+    # Check include-ext if specified.
     if [[ ${#NORM_INCLUDE_EXTS[@]} -gt 0 ]]; then
         [[ -z "$ext" ]] && return 1
         local ok=false
@@ -134,7 +125,7 @@ match_file() {
         $ok || return 1
     fi
 
-    # Check exclude-ext
+    # Check exclude-ext.
     local e
     for e in "${NORM_EXCLUDE_EXTS[@]+"${NORM_EXCLUDE_EXTS[@]}"}"; do
         [[ "$ext" == "$e" ]] && return 1
@@ -143,21 +134,18 @@ match_file() {
     return 0
 }
 
-# ------------------------------------------------------------------------------
-# Collect target files (sorted, NUL-delimited)
-# ------------------------------------------------------------------------------
+# Collect target files (sorted, NUL-delimited).
 collect_files() {
     local dir="$1"
     (cd "$dir" && find . -type f -print0 | sort -z)
 }
 
-# ------------------------------------------------------------------------------
-# Detect files that exist only in one directory
-# ------------------------------------------------------------------------------
+# Detect files that exist only in one directory.
 only_in_dir1=()
 only_in_dir2=()
 
 while IFS= read -r -d '' file; do
+    # Add file to only_in_dir1, if it does not exist in DIR2.
     match_file "$file" || continue
     if [[ ! -f "$DIR2/$file" ]]; then
         only_in_dir1+=("$file")
@@ -165,21 +153,25 @@ while IFS= read -r -d '' file; do
 done < <(collect_files "$DIR1")
 
 while IFS= read -r -d '' file; do
+    # Add file to only_in_dir1, if it does not exist in DIR1.
     match_file "$file" || continue
     if [[ ! -f "$DIR1/$file" ]]; then
         only_in_dir2+=("$file")
     fi
 done < <(collect_files "$DIR2")
 
-# Output report
+# Report files that exist onyly on one side.
 if [[ ${#only_in_dir1[@]} -gt 0 || ${#only_in_dir2[@]} -gt 0 ]]; then
     report="$OUT/_only_in_one_side.txt"
     {
+        # Files that exist only in DIR1.
         if [[ ${#only_in_dir1[@]} -gt 0 ]]; then
             echo "=== Only in DIR1 ($DIR1) ==="
             printf '  %s\n' "${only_in_dir1[@]}"
             echo
         fi
+
+        # Files that exist only in DIR2.
         if [[ ${#only_in_dir2[@]} -gt 0 ]]; then
             echo "=== Only in DIR2 ($DIR2) ==="
             printf '  %s\n' "${only_in_dir2[@]}"
@@ -190,9 +182,7 @@ if [[ ${#only_in_dir1[@]} -gt 0 || ${#only_in_dir2[@]} -gt 0 ]]; then
     echo
 fi
 
-# ------------------------------------------------------------------------------
-# Generate diffs for files present in both directories
-# ------------------------------------------------------------------------------
+# Generate unified diffs for files present in both directories.
 diff_count=0
 
 while IFS= read -r -d '' file; do
@@ -210,7 +200,5 @@ while IFS= read -r -d '' file; do
     fi
 done < <(collect_files "$DIR1")
 
-# ------------------------------------------------------------------------------
-# Summary
-# ------------------------------------------------------------------------------
+# Summary.
 echo "Done: $diff_count diff file(s) written to $OUT"
